@@ -1,0 +1,132 @@
+=============================================================================
+PATCH INSTRUCTIONS FÜR main.cpp - Display Support
+=============================================================================
+
+Diese Datei enthält alle notwendigen Code-Snippets, die in main.cpp eingefügt
+werden müssen, um Display-Unterstützung zu aktivieren.
+
+=============================================================================
+1. INCLUDES HINZUFÜGEN
+=============================================================================
+Position: Nach den bestehenden #include Anweisungen (Zeile ~23)
+Vor: #define DEBUG true
+
+--- CODE EINFÜGEN ---
+#ifdef ESP32_S3_GEEK_DISPLAY
+#include "display.h"
+#include "time.h"
+#endif
+--- ENDE ---
+
+=============================================================================
+2. GLOBALE VARIABLEN FÜR NTP UND DISPLAY
+=============================================================================
+Position: Nach den VDB UUID Variablen (Zeile ~60)
+Nach: char vdb_uuid_l3[80] = "";
+
+--- CODE EINFÜGEN ---
+// Display and NTP configuration
+#ifdef ESP32_S3_GEEK_DISPLAY
+const char* ntpServer = "pool.ntp.org";
+const long gmtOffset_sec = 3600;        // CET = UTC+1
+const int daylightOffset_sec = 3600;     // Daylight Saving Time offset
+unsigned long lastDisplayUpdate = 0;
+const unsigned long displayUpdateInterval = 1000;  // Update display every 1 second
+#endif
+--- ENDE ---
+
+=============================================================================
+3. FUNKTION ZUM ABRUFEN DER ZEIT
+=============================================================================
+Position: VOR der WifiManagerSetup() Funktion (Zeile ~830)
+
+--- CODE EINFÜGEN ---
+#ifdef ESP32_S3_GEEK_DISPLAY
+String getTimeString() {
+  struct tm timeinfo;
+  if(!getLocalTime(&timeinfo)){
+    return "--:--:--";
+  }
+  char timeStr[9];
+  strftime(timeStr, sizeof(timeStr), "%H:%M:%S", &timeinfo);
+  return String(timeStr);
+}
+#endif
+
+--- ENDE ---
+
+=============================================================================
+4. DISPLAY INITIALISIERUNG IN setup()
+=============================================================================
+Position: In der setup() Funktion, NACH WiFi-Verbindung
+Nach: DEBUG_SERIAL.println(WiFi.localIP());
+Vor: if (String(led_gpio).toInt() > 0) {
+
+--- CODE EINFÜGEN ---
+  
+  // Initialize display
+#ifdef ESP32_S3_GEEK_DISPLAY
+  display_init();
+  
+  // Configure NTP time
+  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+  DEBUG_SERIAL.println("Waiting for NTP time sync...");
+  delay(2000);  // Wait for NTP synchronization
+  
+  // Show IP address on display
+  display_show_ip(WiFi.localIP().toString().c_str());
+  delay(2000);
+#endif
+--- ENDE ---
+
+=============================================================================
+5. DISPLAY UPDATE IN loop()
+=============================================================================
+Position: Am ENDE der loop() Funktion, VOR der schließenden Klammer
+Vor: }
+
+--- CODE EINFÜGEN ---
+  
+  // Update display regularly
+#ifdef ESP32_S3_GEEK_DISPLAY
+  unsigned long currentMillis_display = millis();
+  if (currentMillis_display - lastDisplayUpdate >= displayUpdateInterval) {
+    String timeStr = getTimeString();
+    String ipStr = WiFi.localIP().toString();
+    
+    display_update(timeStr.c_str(), ipStr.c_str(),
+                   PhasePower[0].power, 
+                   PhasePower[1].power, 
+                   PhasePower[2].power);
+    
+    lastDisplayUpdate = currentMillis_display;
+  }
+#endif
+--- ENDE ---
+
+=============================================================================
+KOMPILIERUNG
+=============================================================================
+
+Nach den Änderungen kompiliere mit:
+  pio run -e esp32-s3-geek-display
+
+Oder zum Upload:
+  pio run -e esp32-s3-geek-display -t upload
+
+=============================================================================
+CHECKLISTE
+=============================================================================
+
+[ ] 1. Includes hinzugefügt
+[ ] 2. Globale Variablen hinzugefügt
+[ ] 3. getTimeString() Funktion hinzugefügt
+[ ] 4. Display-Init in setup() hinzugefügt
+[ ] 5. Display-Update in loop() hinzugefügt
+[ ] 6. Kompilierung erfolgreich
+[ ] 7. Upload erfolgreich
+[ ] 8. Display zeigt Daten an
+
+=============================================================================
+ENDE DER PATCH-ANWEISUNGEN
+=============================================================================
