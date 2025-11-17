@@ -21,6 +21,10 @@
 #include <ESPAsyncWebServer.h>
 #include <WiFiUdp.h>
 #include <ModbusIP_ESP8266.h>
+#ifdef ESP32_S3_GEEK_DISPLAY
+#include "display.h"
+#include "time.h"
+#endif
 #define DEBUG true // set to false for no DEBUG output
 #define DEBUG_SERIAL if(DEBUG)Serial
 unsigned long startMillis = 0;
@@ -56,6 +60,13 @@ char vdb_uuid[80] = "";      // UUID for MONOPHASE or TRIPHASE keyword
 char vdb_uuid_l1[80] = "";   // UUID for L1 in TRIPHASE mode
 char vdb_uuid_l2[80] = "";   // UUID for L2 in TRIPHASE mode
 char vdb_uuid_l3[80] = "";   // UUID for L3 in TRIPHASE mode
+
+#ifdef ESP32_S3_GEEK_DISPLAY
+const long gmtOffset_sec = 3600;        // CET = UTC+1
+const int daylightOffset_sec = 3600;     // Daylight Saving Time offset
+unsigned long lastDisplayUpdate = 0;
+const unsigned long displayUpdateInterval = 10000;  // Update display every 1 second
+#endif
 
 IPAddress modbus_ip;
 ModbusIP modbus1;
@@ -853,6 +864,23 @@ void queryVDB() {
   }
 }
 
+#ifdef ESP32_S3_GEEK_DISPLAY
+String getTimeString() {
+  struct tm timeinfo;
+  if(!getLocalTime(&timeinfo)){
+    return "--:--";
+  }
+  char timeStr[9];
+  strftime(timeStr, sizeof(timeStr), "%H:%M", &timeinfo);
+  return String(timeStr);
+}
+#endif
+
+
+
+
+
+
 void WifiManagerSetup() {
  // Set Shelly ID to ESP's MAC address by default
  uint8_t mac[6];
@@ -889,7 +917,7 @@ void WifiManagerSetup() {
  
  WiFiManagerParameter custom_section1("<h3>General settings</h3>");
  WiFiManagerParameter custom_input_type("type", "<b>Data source</b><br><code>MQTT</code> for MQTT<br><code>HTTP</code> for generic HTTP<br><code>VDB</code> for VolkszählerDB<br><code>SMA</code> for SMA EM/HM multicast<br><code>SHRDZM</code> for SHRDZM UDP data<br><code>SUNSPEC</code> for Modbus TCP SUNSPEC data", input_type, 40);  // VDB-CHANGE: Added VDB option to input type description
- WiFiManagerParameter custom_mqtt_server("server", "<b>Server</b><br>MQTT Server IP, query url for generic HTTP, Volkszaehler server IP (without http://) or Modbus TCP server IP for SUNSPEC", mqtt_server, 80);  // VDB-CHANGE: Added VDB to server description
+ WiFiManagerParameter custom_mqtt_server("server", "<b>Server</b><br>MQTT Server IP, query url for generic HTTP, VDB server IP or Modbus TCP server IP for SUNSPEC", mqtt_server, 80);  // VDB-CHANGE: Added VDB to server description
  WiFiManagerParameter custom_mqtt_port("port", "<b>Port</b><br> for MQTT or Modbus TCP (SUNSPEC)", mqtt_port, 6);
  WiFiManagerParameter custom_query_period("query_period", "<b>Query period</b><br>for generic HTTP, VDB and SUNSPEC, in milliseconds", query_period, 10);  // VDB-CHANGE: Added VDB to query period description
  WiFiManagerParameter custom_led_gpio("led_gpio", "<b>GPIO</b><br>of internal LED", led_gpio, 3);
@@ -901,10 +929,10 @@ void WifiManagerSetup() {
  
  // VDB-CHANGE: Added VDB configuration section with UUID parameters
  WiFiManagerParameter custom_section_vdb("<hr><h3>VDB (VolkszählerDB) options</h3>");
- WiFiManagerParameter custom_vdb_uuid("vdb_uuid", "<b>Total Power UUID or TRIPHASE</b><br>UUID for monophase (e.g. b7e1ced0-xxxx-xxxx-yyyy-d36e0a30be66) or <code>TRIPHASE</code> keyword", vdb_uuid, 80);
- WiFiManagerParameter custom_vdb_uuid_l1("vdb_uuid_l1", "<b>Phase 1 UUID</b><br>UUID for L1 (only for TRIPHASE, e.g. e8305be0-xxxx-xxxx-yyyy-d3d66fdcda52)", vdb_uuid_l1, 80);
- WiFiManagerParameter custom_vdb_uuid_l2("vdb_uuid_l2", "<b>Phase 2 UUID</b><br>UUID for L2 (only for TRIPHASE, e.g. 02820880-xxxx-xxxx-yyyy-67a92978b5a6)", vdb_uuid_l2, 80);
- WiFiManagerParameter custom_vdb_uuid_l3("vdb_uuid_l3", "<b>Phase 3 UUID</b><br>UUID for L3 (only for TRIPHASE, e.g. 21f0c820-xxxx-xxxx-yyyy-556971f26f9c)", vdb_uuid_l3, 80);
+ WiFiManagerParameter custom_vdb_uuid("vdb_uuid", "<b>Total Power UUID or TRIPHASE</b><br>UUID for monophase (e.g. b7e1ced0-3e8f-11ed-9423-d36e0a30be66) or <code>TRIPHASE</code> keyword", vdb_uuid, 80);
+ WiFiManagerParameter custom_vdb_uuid_l1("vdb_uuid_l1", "<b>Phase 1 UUID</b><br>UUID for L1 (only for TRIPHASE, e.g. e8305be0-3e8f-11ed-ad36-d3d66fdcda52)", vdb_uuid_l1, 80);
+ WiFiManagerParameter custom_vdb_uuid_l2("vdb_uuid_l2", "<b>Phase 2 UUID</b><br>UUID for L2 (only for TRIPHASE, e.g. 02820880-3e90-11ed-a7db-67a92978b5a6)", vdb_uuid_l2, 80);
+ WiFiManagerParameter custom_vdb_uuid_l3("vdb_uuid_l3", "<b>Phase 3 UUID</b><br>UUID for L3 (only for TRIPHASE, e.g. 21f0c820-3e90-11ed-b992-556971f26f9c)", vdb_uuid_l3, 80);
  
  WiFiManagerParameter custom_section2("<hr><h3>MQTT options</h3>");
  WiFiManagerParameter custom_mqtt_topic("topic", "<b>MQTT Topic</b>", mqtt_topic, 90);
@@ -1097,6 +1125,7 @@ void WifiManagerSetup() {
 void setup(void) {
  DEBUG_SERIAL.begin(115200);
  WifiManagerSetup();
+
  if (String(led_gpio).toInt() > 0) {
  led = String(led_gpio).toInt();
  }
@@ -1186,12 +1215,32 @@ void setup(void) {
  startMillis = millis();
  http.useHTTP10(true);
  }
+
+#ifdef ESP32_S3_GEEK_DISPLAY
+  DEBUG_SERIAL.println("Starting display initialization...");
+  delay(500);  // Wichtige Pause
+  
+  display_init();
+  delay(1000);
+  
+  // NTP mit Gateway
+  //String gatewayIP = WiFi.gatewayIP().toString();
+  String gatewayIP = "192.168.2.200";
+  DEBUG_SERIAL.print("Using Gateway as NTP: ");
+  DEBUG_SERIAL.println(gatewayIP);
+  
+  configTime(gmtOffset_sec, daylightOffset_sec, gatewayIP.c_str());
+   
+  display_show_ip(WiFi.localIP().toString().c_str());
+  delay(500);
+#endif
  
  // Set up mDNS responder
  strcat(shelly_name, shelly_mac);
  if (!MDNS.begin(shelly_name)) {
  DEBUG_SERIAL.println("Error setting up MDNS responder!");
  }
+
 #ifdef ESP32
  MDNS.addService("http", "tcp", 80);
  MDNS.addService("shelly", "tcp", 80);
@@ -1276,6 +1325,22 @@ void loop() {
  startMillis = currentMillis;
  }
  }
+
+ #ifdef ESP32_S3_GEEK_DISPLAY
+  unsigned long currentMillis_display = millis();
+  if (currentMillis_display - lastDisplayUpdate >= displayUpdateInterval) {
+    String timeStr = getTimeString();
+    String ipStr = WiFi.localIP().toString();
+    
+    display_update(timeStr.c_str(), ipStr.c_str(),
+                   PhasePower[0].power, 
+                   PhasePower[1].power, 
+                   PhasePower[2].power);
+    
+    lastDisplayUpdate = currentMillis_display;
+  }
+#endif
+
  
  handleblinkled();
 }
